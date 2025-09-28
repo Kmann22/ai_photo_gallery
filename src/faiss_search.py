@@ -94,7 +94,7 @@ if __name__ == "__main__":
 
     # Load index and run a sample query
     index = load_faiss_index()
-    query = "beach"
+    query = "chapel"
     results, scores = search_images(query, index, filenames, top_k=5)
     print("Top results:", results)
     print("Similarity scores:", scores)

@@ -1,3 +1,4 @@
+# 1st
 # src/ingestion.py
 import os
 from PIL import Image
@@ -46,3 +47,13 @@ def load_and_preprocess_images(save_processed=True):
 if __name__ == "__main__":
     imgs, names = load_and_preprocess_images()
     print("Sample filenames:", names[:5])
+
+
+
+# 1. Loop through all files in RAW_DIR.
+# 2. Filter images by extension (.jpg, .jpeg, .png).
+# 3. Open the image and convert it to RGB (standard 3-channel format).
+# 4. Resize to (224, 224) using img.resize.
+# 5. If save_processed is True, save the resized image to PROCESSED_DIR.
+# 6. Append the resized image and filename to separate lists.
+# 7. Handle exceptions gracefully and print any loading errors.

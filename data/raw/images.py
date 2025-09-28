@@ -1,26 +1,35 @@
 import os
-import requests
-from time import sleep
+from PIL import Image
+import piexif
 
-SAVE_DIR = 'free_images'
-TOTAL_IMAGES = 500
-os.makedirs(SAVE_DIR, exist_ok=True)
+# Get the current folder
+folder_path = "."
 
-def download_image(url, path):
-    try:
-        response = requests.get(url, timeout=10)
-        response.raise_for_status()
-        with open(path, 'wb') as f:
-            f.write(response.content)
-        print(f"Downloaded: {path}")
-    except Exception as e:
-        print(f"Failed: {path}, Error: {e}")
+# Loop through all files in the current folder
+for filename in os.listdir(folder_path):
+    if filename.lower().endswith((".jpg", ".jpeg", ".png", ".tiff", ".bmp")):
+        print(f"\n=== Metadata for {filename} ===")
+        try:
+            img = Image.open(filename)
 
-# Use free image placeholders from picsum.photos
-for i in range(1, TOTAL_IMAGES + 1):
-    img_url = f"https://picsum.photos/800/600?random={i}"  # random free image
-    filename = os.path.join(SAVE_DIR, f'image_{i}.jpg')
-    download_image(img_url, filename)
-    sleep(0.1)  # slight delay to be polite
+            # Basic image info
+            print("Basic Image Info:")
+            print(f"Format: {img.format}")
+            print(f"Mode: {img.mode}")
+            print(f"Size: {img.size}")
+            print(f"Info: {img.info}")
 
-print(f"Finished downloading {TOTAL_IMAGES} free images.")
+            # EXIF metadata
+            print("\nEXIF Metadata:")
+            exif_data = piexif.load(img.info.get("exif", b""))
+            for ifd in exif_data:
+                print(f"\n{ifd} IFD:")
+                for tag in exif_data[ifd]:
+                    try:
+                        tag_name = piexif.TAGS[ifd][tag]["name"]
+                        print(f"{tag_name}: {exif_data[ifd][tag]}")
+                    except KeyError:
+                        print(f"Unknown Tag {tag}: {exif_data[ifd][tag]}")
+
+        except Exception as e:
+            print(f"Could not process {filename}: {e}")
