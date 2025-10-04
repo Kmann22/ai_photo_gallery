@@ -8,17 +8,29 @@ from geopy.exc import GeocoderTimedOut
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 import time
+import torch
+import clip
 
-# Paths
-RAW_DATA_DIR = os.path.join("data", "raw")
-DB_PATH = "metadata.db"
+# ---------------- PROJECT-ROOT SAFE PATHS ----------------
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+RAW_DATA_DIR = os.path.join(BASE_DIR, "data", "raw")
+PROCESSED_DIR = os.path.join(BASE_DIR, "data", "processed")
+EMBEDDINGS_DIR = os.path.join(BASE_DIR, "embeddings")
+EMBEDDINGS_FILE = os.path.join(EMBEDDINGS_DIR, "clip_embeddings.pt")
+DB_PATH = os.path.join(BASE_DIR, "metadata.db")
 
-# Initialize geolocator
+os.makedirs(PROCESSED_DIR, exist_ok=True)
+os.makedirs(EMBEDDINGS_DIR, exist_ok=True)
+
+# ---------------- CLIP SETUP ----------------
+device = "cuda" if torch.cuda.is_available() else "cpu"
+model, preprocess_clip = clip.load("ViT-B/32", device=device)
+
+# ---------------- GEO LOCATOR ----------------
 geolocator = Nominatim(user_agent="photo_metadata_app")
 
 # ---------------- DATABASE ----------------
 def init_db():
-    """Initialize SQLite DB with geolocation column."""
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("""
@@ -98,13 +110,47 @@ def get_location(lat, lon):
         print(f"Geocoding error: {e}")
         return "Unknown location"
 
-# ---------------- INGEST ----------------
-def process_file(file_path):
+# ---------------- EMBEDDINGS ----------------
+def load_embeddings():
+    if os.path.exists(EMBEDDINGS_FILE):
+        return torch.load(EMBEDDINGS_FILE)
+    return {}
+
+def save_embeddings(embeddings_dict):
+    torch.save(embeddings_dict, EMBEDDINGS_FILE)
+
+def preprocess_and_store(file_path, embeddings_dict):
+    filename = os.path.basename(file_path)
+    processed_path = os.path.join(PROCESSED_DIR, filename)
+
+    if filename in embeddings_dict and os.path.exists(processed_path):
+        return processed_path
+
+    try:
+        img = Image.open(file_path).convert("RGB")
+        img_resized = img.resize((224, 224))
+        img_resized.save(processed_path)
+
+        # CLIP embedding
+        image_input = preprocess_clip(img).unsqueeze(0).to(device)
+        with torch.no_grad():
+            embedding = model.encode_image(image_input)
+            embedding = embedding / embedding.norm(dim=-1, keepdim=True)
+
+        embeddings_dict[filename] = embedding.cpu()
+        save_embeddings(embeddings_dict)
+        print(f"Processed and stored: {filename}")
+        return processed_path
+    except Exception as e:
+        print(f"Failed processing {file_path}: {e}")
+        return None
+
+# ---------------- FILE PROCESSING ----------------
+def process_file(file_path, embeddings_dict):
     filename = os.path.basename(file_path)
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
-    # Skip already processed
     cursor.execute("SELECT id FROM photos_metadata WHERE filename=?", (filename,))
     if cursor.fetchone():
         print(f"Skipping already processed: {filename}")
@@ -130,26 +176,31 @@ def process_file(file_path):
     conn.commit()
     conn.close()
 
-def ingest_existing_files():
-    """Ingest all existing files in RAW_DATA_DIR."""
+    preprocess_and_store(file_path, embeddings_dict)
+
+# ---------------- INITIAL INGEST ----------------
+def ingest_existing_files(embeddings_dict):
     for filename in os.listdir(RAW_DATA_DIR):
         file_path = os.path.join(RAW_DATA_DIR, filename)
-        if os.path.isfile(file_path):
-            process_file(file_path)
+        if os.path.isfile(file_path) and filename.lower().endswith((".jpg", ".jpeg", ".png")):
+            process_file(file_path, embeddings_dict)
 
 # ---------------- WATCHER ----------------
 class NewFileHandler(FileSystemEventHandler):
+    def __init__(self, embeddings_dict):
+        self.embeddings_dict = embeddings_dict
+
     def on_created(self, event):
         if not event.is_directory:
             print(f"New file detected: {event.src_path}")
-            process_file(event.src_path)
+            process_file(event.src_path, self.embeddings_dict)
 
-def start_watcher():
-    event_handler = NewFileHandler()
+def start_watcher(embeddings_dict):
+    event_handler = NewFileHandler(embeddings_dict)
     observer = Observer()
     observer.schedule(event_handler, RAW_DATA_DIR, recursive=False)
     observer.start()
-    print("Watching for new files... Press Ctrl+C to exit.")
+    print("Watching for new files...")
     try:
         while True:
             time.sleep(1)
@@ -160,5 +211,6 @@ def start_watcher():
 # ---------------- MAIN ----------------
 if __name__ == "__main__":
     init_db()
-    ingest_existing_files()  # Ingest existing images
-    start_watcher()          # Start watcher for new images
+    embeddings_dict = load_embeddings()
+    ingest_existing_files(embeddings_dict)
+    start_watcher(embeddings_dict)
