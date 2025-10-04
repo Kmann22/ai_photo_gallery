@@ -1,61 +1,141 @@
-# main.py
-
 import os
-import numpy as np
+import sqlite3
+from datetime import datetime
 from PIL import Image
-import faiss
-from src.ingestion import load_and_preprocess_images
-from src.faiss_search import load_faiss_index, search_images
+from PIL.ExifTags import TAGS, GPSTAGS
+from geopy.geocoders import Nominatim
+from geopy.exc import GeocoderTimedOut
 
-# -----------------------------
 # Paths
-# -----------------------------
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-PROCESSED_DIR = os.path.join(BASE_DIR, "data/processed")
-EMBEDDINGS_FILE = os.path.join(BASE_DIR, "embeddings/clip_vectors.npy")
-FAISS_INDEX_FILE = os.path.join(BASE_DIR, "faiss_index/index.faiss")
+RAW_DATA_DIR = os.path.join("data", "raw")
+DB_PATH = "metadata.db"
 
-# -----------------------------
-# Load images
-# -----------------------------
-try:
-    images, filenames = load_and_preprocess_images(save_processed=False)  # already processed
-    if len(images) == 0:
-        raise ValueError("No images loaded. Check your processed images directory.")
-    print(f"Loaded {len(images)} images for search.")
-except Exception as e:
-    print(f"Error loading images: {e}")
-    exit(1)
+# Initialize geolocator
+geolocator = Nominatim(user_agent="photo_metadata_app")
 
-# -----------------------------
-# Load FAISS index
-# -----------------------------
-try:
-    index = load_faiss_index(FAISS_INDEX_FILE)
+def init_db():
+    """Initialize SQLite DB with a metadata table, including geolocation."""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS photos_metadata (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            filename TEXT NOT NULL,
+            year INTEGER,
+            month INTEGER,
+            day INTEGER,
+            geolocation TEXT
+        )
+    """)
+    conn.commit()
+    conn.close()
 
-    # Ensure index is compatible for searching
-    if not isinstance(index, faiss.Index):
-        raise TypeError("Loaded FAISS index is not a valid FAISS index object.")
-
-    print("FAISS index loaded successfully.")
-except Exception as e:
-    print(f"Error loading FAISS index: {e}")
-    exit(1)
-
-# -----------------------------
-# Perform search
-# -----------------------------
-while True:
-    query = input("\nEnter your text query (or 'exit' to quit): ")
-    if query.lower() == "exit":
-        break
-
-    top_k = 5
+def get_exif_data(file_path):
+    """Extract EXIF data from image."""
     try:
-        # Search and normalize vectors if using cosine similarity
-        results, scores = search_images(query, index, filenames, top_k=top_k)
-        print(f"\nTop {top_k} results for query '{query}':")
-        for i, (fname, score) in enumerate(zip(results, scores)):
-            print(f"{i+1}. {fname} (score: {score:.4f})")
+        img = Image.open(file_path)
+        exif_data = img._getexif()
+        if exif_data:
+            return {TAGS.get(tag, tag): value for tag, value in exif_data.items()}
     except Exception as e:
-        print(f"Error during search: {e}")
+        print(f"EXIF error for {file_path}: {e}")
+    return {}
+
+def get_date(exif):
+    """Get Date Taken from EXIF, fallback to None."""
+    date_str = exif.get("DateTimeOriginal")
+    if date_str:
+        dt = datetime.strptime(date_str, "%Y:%m:%d %H:%M:%S")
+        return dt.year, dt.month, dt.day
+    return None, None, None
+
+def get_modified_date(file_path):
+    """Fallback: extract date from file modified time."""
+    stat = os.stat(file_path)
+    modified_time = datetime.fromtimestamp(stat.st_mtime)
+    return modified_time.year, modified_time.month, modified_time.day
+
+def convert_to_degrees(value):
+    """Convert GPS EXIF coordinates to decimal degrees, handling IFDRational."""
+    try:
+        d, m, s = value
+        d = float(d)
+        m = float(m)
+        s = float(s)
+        return d + (m / 60.0) + (s / 3600.0)
+    except Exception as e:
+        print(f"Error converting to degrees: {e}")
+        return None
+
+def get_gps(exif):
+    """Extract latitude and longitude from EXIF GPS info."""
+    gps_info = exif.get("GPSInfo")
+    if not gps_info:
+        return None, None
+
+    gps_data = {GPSTAGS.get(k, k): v for k, v in gps_info.items()}
+    lat = lon = None
+
+    try:
+        if "GPSLatitude" in gps_data and "GPSLatitudeRef" in gps_data:
+            lat = convert_to_degrees(gps_data["GPSLatitude"])
+            if gps_data["GPSLatitudeRef"] in ["S", "s"]:
+                lat = -lat
+
+        if "GPSLongitude" in gps_data and "GPSLongitudeRef" in gps_data:
+            lon = convert_to_degrees(gps_data["GPSLongitude"])
+            if gps_data["GPSLongitudeRef"] in ["W", "w"]:
+                lon = -lon
+
+    except Exception as e:
+        print(f"GPS parsing error: {e}")
+
+    return lat, lon
+
+def get_location(lat, lon):
+    """Convert lat/lon to human-readable location."""
+    if lat is None or lon is None:
+        return "N/A"
+    try:
+        location = geolocator.reverse((lat, lon), timeout=10)
+        return location.address if location else "Unknown location"
+    except GeocoderTimedOut:
+        return "Geocoder timed out"
+    except Exception as e:
+        print(f"Geocoding error: {e}")
+        return "Unknown location"
+
+def ingest_photos():
+    """Ingest photos and store metadata including geolocation in DB."""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    for filename in os.listdir(RAW_DATA_DIR):
+        file_path = os.path.join(RAW_DATA_DIR, filename)
+        if not os.path.isfile(file_path):
+            continue
+
+        exif = get_exif_data(file_path)
+        year, month, day = get_date(exif)
+        if year is None:
+            year, month, day = get_modified_date(file_path)
+            print(f"File: {filename} | Using Modified Date -> {year}-{month}-{day}")
+        else:
+            print(f"File: {filename} | Using Date Taken -> {year}-{month}-{day}")
+
+        lat, lon = get_gps(exif)
+        geolocation = get_location(lat, lon)
+        print(f"Geolocation: {geolocation}")
+
+        # Store filename, date, and geolocation in DB
+        cursor.execute("""
+            INSERT INTO photos_metadata (filename, year, month, day, geolocation)
+            VALUES (?, ?, ?, ?, ?)
+        """, (filename, year, month, day, geolocation))
+
+    conn.commit()
+    conn.close()
+
+if __name__ == "__main__":
+    init_db()
+    ingest_photos()
