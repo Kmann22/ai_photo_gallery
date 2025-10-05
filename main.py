@@ -1,5 +1,4 @@
 import os
-import time
 import sqlite3
 from datetime import datetime
 from flask import Flask, render_template, request, send_from_directory
@@ -10,6 +9,7 @@ from geopy.geocoders import Nominatim
 from geopy.exc import GeocoderTimedOut
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
+from sklearn.cluster import KMeans
 
 import torch
 import clip
@@ -182,31 +182,6 @@ def ingest_existing_files(embeddings_dict):
         if os.path.isfile(file_path) and filename.lower().endswith((".jpg", ".jpeg", ".png")):
             process_file(file_path, embeddings_dict)
 
-# ------------------- WATCHER -------------------
-class NewFileHandler(FileSystemEventHandler):
-    def __init__(self, embeddings_dict):
-        self.embeddings_dict = embeddings_dict
-
-    def on_created(self, event):
-        if not event.is_directory:
-            print(f"New file detected: {event.src_path}")
-            process_file(event.src_path, self.embeddings_dict)
-            build_and_save_faiss_index(self.embeddings_dict)
-
-def start_watcher(embeddings_dict):
-    event_handler = NewFileHandler(embeddings_dict)
-    observer = Observer()
-    observer.schedule(event_handler, RAW_DATA_DIR, recursive=False)
-    observer.start()
-    print("Watching for new files...")
-
-    try:
-        while True:
-            time.sleep(1)
-    except KeyboardInterrupt:
-        observer.stop()
-        observer.join()
-
 # ------------------- FAISS -------------------
 def save_faiss_index(index, filenames):
     serialized = faiss.serialize_index(index)
@@ -252,48 +227,115 @@ def search_images(prompt, embeddings_dict, top_k=10):
     scores, indices = index.search(query_vec, top_k)
     return [(filenames[i], float(scores[0][j])) for j, i in enumerate(indices[0])]
 
-# ------------------- FLASK FRONTEND -------------------
+# ------------------- ALBUM GENERATION -------------------
+from sklearn.cluster import AgglomerativeClustering
+
+def generate_albums(embeddings_dict, num_clusters=6):
+    """
+    Groups images into semantically meaningful albums using CLIP embeddings +
+    hierarchical clustering and automatic album naming via CLIP similarity.
+    """
+    if not embeddings_dict:
+        print("⚠️ No embeddings available to cluster.")
+        return {}
+
+    print("🧠 Generating smarter AI albums...")
+
+    filenames = list(embeddings_dict.keys())
+    embeddings = torch.cat([embeddings_dict[f] for f in filenames], dim=0)
+    embeddings_np = embeddings.numpy().astype("float32")
+
+    # Use hierarchical clustering (better for uneven semantic groups)
+    clustering = AgglomerativeClustering(n_clusters=num_clusters)
+    labels = clustering.fit_predict(embeddings_np)
+
+    # Define conceptual album categories for naming
+    concept_labels = [
+        "Nature", "People", "Architecture", "Animals", "Food", "Sports",
+        "Art", "Technology", "Beach", "Mountains", "Vehicles", "Night Sky"
+    ]
+
+    # Encode concept titles using CLIP for similarity-based naming
+    text_tokens = clip.tokenize(concept_labels).to(device)
+    with torch.no_grad():
+        text_embeddings = model.encode_text(text_tokens)
+        text_embeddings = text_embeddings / text_embeddings.norm(dim=-1, keepdim=True)
+
+    albums = {}
+    for cluster_id in range(num_clusters):
+        cluster_imgs = [filenames[i] for i, label in enumerate(labels) if label == cluster_id]
+        if not cluster_imgs:
+            continue
+
+        # Compute average embedding for cluster
+        cluster_emb = torch.stack([embeddings_dict[f] for f in cluster_imgs]).mean(dim=0)
+        cluster_emb = cluster_emb / cluster_emb.norm(dim=-1, keepdim=True)
+
+        # Find the most semantically similar concept
+        sims = (cluster_emb @ text_embeddings.T).squeeze()
+        best_idx = sims.argmax().item()
+        album_title = concept_labels[best_idx]
+
+        # Handle duplicates (e.g., multiple "Nature" clusters)
+        if album_title in albums:
+            suffix = len([k for k in albums.keys() if k.startswith(album_title)]) + 1
+            album_title = f"{album_title} {suffix}"
+
+        albums[album_title] = cluster_imgs
+
+    print(f"✅ Created {len(albums)} smarter albums with semantic grouping.")
+    return albums
+
+# ------------------- FLASK APP -------------------
 app = Flask(__name__)
+
+# Load embeddings globally
+embeddings_dict = load_embeddings()
+albums_cache = generate_albums(embeddings_dict, num_clusters=5)
 
 @app.route("/")
 def home():
     return render_template("home.html")
 
 @app.route("/search", methods=["POST"])
-def search():
+def search_route():
     query = request.form.get("query")
     if not query:
         return render_template("home.html", error="Please enter a search query.")
 
     results = search_images(query, embeddings_dict, top_k=30)
     image_paths = [f"/processed/{fname}" for fname, _ in results if os.path.exists(os.path.join(PROCESSED_DIR, fname))]
-
     return render_template("gallery.html", query=query, image_paths=image_paths)
 
-# Serve images directly from data/processed without static/
 @app.route("/processed/<path:filename>")
 def serve_processed(filename):
     return send_from_directory(PROCESSED_DIR, filename)
 
+@app.route("/albums")
+def view_albums():
+    return render_template("album.html", albums=albums_cache)
+
+@app.route("/album/<album_name>")
+def view_single_album(album_name):
+    album_name = album_name.replace("%20", " ")
+    if album_name not in albums_cache:
+        return f"Album '{album_name}' not found.", 404
+    image_paths = [f"/processed/{fname}" for fname in albums_cache[album_name]]
+    return render_template("gallery.html", query=album_name, image_paths=image_paths)
+
 @app.route("/dashboard")
 def dashboard():
-    """Dashboard to display summary statistics."""
     with sqlite3.connect(DB_PATH) as conn:
         cursor = conn.cursor()
-
-        # Total photos
         cursor.execute("SELECT COUNT(*) FROM photos_metadata")
         total_photos = cursor.fetchone()[0]
 
-        # Unique years
         cursor.execute("SELECT COUNT(DISTINCT year) FROM photos_metadata WHERE year IS NOT NULL")
         unique_years = cursor.fetchone()[0]
 
-        # Unique geolocations
-        cursor.execute("SELECT COUNT(DISTINCT geolocation) FROM photos_metadata WHERE geolocation NOT IN ('N/A', 'Unknown location')")
+        cursor.execute("SELECT COUNT(DISTINCT geolocation) FROM photos_metadata WHERE geolocation NOT IN ('N/A','Unknown location')")
         locations_count = cursor.fetchone()[0]
 
-        # Recent 10 photos
         cursor.execute("SELECT filename, printf('%04d-%02d-%02d', year, month, day) AS date, geolocation FROM photos_metadata ORDER BY id DESC LIMIT 10")
         recent_photos = cursor.fetchall()
 
@@ -305,11 +347,9 @@ def dashboard():
         recent_photos=recent_photos
     )
 
-
 # ------------------- MAIN -------------------
 if __name__ == "__main__":
     init_db()
-    embeddings_dict = load_embeddings()
     ingest_existing_files(embeddings_dict)
     build_and_save_faiss_index(embeddings_dict)
     app.run(debug=True)
