@@ -2,6 +2,7 @@ import os
 import time
 import sqlite3
 from datetime import datetime
+from flask import Flask, render_template, request, send_from_directory
 
 from PIL import Image
 from PIL.ExifTags import TAGS, GPSTAGS
@@ -251,18 +252,33 @@ def search_images(prompt, embeddings_dict, top_k=10):
     scores, indices = index.search(query_vec, top_k)
     return [(filenames[i], float(scores[0][j])) for j, i in enumerate(indices[0])]
 
+# ------------------- FLASK FRONTEND -------------------
+app = Flask(__name__)
+
+@app.route("/")
+def home():
+    return render_template("home.html")
+
+@app.route("/search", methods=["POST"])
+def search():
+    query = request.form.get("query")
+    if not query:
+        return render_template("home.html", error="Please enter a search query.")
+
+    results = search_images(query, embeddings_dict, top_k=30)
+    image_paths = [f"/processed/{fname}" for fname, _ in results if os.path.exists(os.path.join(PROCESSED_DIR, fname))]
+
+    return render_template("gallery.html", query=query, image_paths=image_paths)
+
+# Serve images directly from data/processed without static/
+@app.route("/processed/<path:filename>")
+def serve_processed(filename):
+    return send_from_directory(PROCESSED_DIR, filename)
+
 # ------------------- MAIN -------------------
 if __name__ == "__main__":
     init_db()
     embeddings_dict = load_embeddings()
     ingest_existing_files(embeddings_dict)
     build_and_save_faiss_index(embeddings_dict)
-
-    query = "shoes"
-    results = search_images(query, embeddings_dict, top_k=10)
-    print("\nTop 10 results for:", query)
-    for fname, score in results:
-        print(f"{fname} (score={score:.4f})")
-
-    # Uncomment to enable live watching
-    # start_watcher(embeddings_dict)
+    app.run(debug=True)
