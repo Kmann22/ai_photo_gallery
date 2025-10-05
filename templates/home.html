@@ -24,42 +24,77 @@
         }
 
         /* --- SEARCH FORM --- */
-        form {
+        .search-container {
             display: flex;
-            gap: 10px;
             align-items: center;
-            justify-content: center;
+            position: relative;
+            width: 100%;
+            max-width: 500px;
         }
 
-        input[type="text"] {
-            padding: 12px 15px;
-            width: 320px;
-            border-radius: 6px;
+        /* Input with padding for icons */
+        .search-container input[type="text"] {
+            width: 100%;
+            padding: 12px 45px 12px 45px;
+            border-radius: 25px;
             border: 1px solid #333;
             background-color: #1e1e1e;
             color: #e0e0e0;
             outline: none;
-            transition: border-color 0.3s;
+            font-size: 16px;
+            transition: border-color 0.3s, box-shadow 0.3s;
         }
 
-        input[type="text"]:focus {
+        .search-container input[type="text"]:focus {
             border-color: #007bff;
+            box-shadow: 0 0 8px rgba(0,123,255,0.4);
         }
 
-        button[type="submit"] {
-            padding: 12px 18px;
-            border: none;
-            background-color: #007bff;
-            color: white;
-            border-radius: 6px;
+        /* Left + icon */
+        .upload-icon {
+            position: absolute;
+            left: 12px;
+            top: 50%;
+            transform: translateY(-50%);
+            font-size: 20px;
+            color: #007bff;
             cursor: pointer;
-            font-weight: 600;
-            transition: background-color 0.2s, transform 0.2s;
         }
 
-        button[type="submit"]:hover {
-            background-color: #0056b3;
-            transform: translateY(-1px);
+        .upload-icon:hover::after {
+            content: "Upload image to search";
+            position: absolute;
+            top: -30px;
+            left: 50%;
+            transform: translateX(-50%);
+            background-color: #333;
+            color: white;
+            padding: 5px 10px;
+            border-radius: 6px;
+            font-size: 13px;
+            white-space: nowrap;
+            opacity: 1;
+            pointer-events: none;
+        }
+
+        /* Right arrow button */
+        .submit-arrow {
+            position: absolute;
+            right: 12px;
+            top: 50%;
+            transform: translateY(-50%);
+            font-size: 18px;
+            color: #007bff;
+            background: none;
+            border: none;
+            cursor: pointer;
+            outline: none;
+            transition: color 0.2s, transform 0.2s;
+        }
+
+        .submit-arrow:hover {
+            color: #fff;
+            transform: translateY(-50%) scale(1.1);
         }
 
         /* --- BUTTON GROUP BELOW SEARCH --- */
@@ -104,10 +139,17 @@
 <body>
     <h1>Explore Your Photo Universe 🌌</h1>
 
-    <!-- Search Section -->
-    <form action="/search" method="post">
-        <input type="text" name="query" placeholder="e.g., shoes, beach, sunset">
-        <button type="submit">Search</button>
+    <!-- Search Form -->
+    <form id="search-form" action="/search" method="post" enctype="multipart/form-data" class="search-container">
+        <!-- Left + icon -->
+        <label class="upload-icon" for="image-upload">+</label>
+        <input type="file" id="image-upload" name="image" accept="image/*" hidden>
+
+        <!-- Text input -->
+        <input type="text" id="query" name="query" placeholder="Search photos...">
+
+        <!-- Right arrow submit -->
+        <button type="submit" class="submit-arrow">&#10148;</button>
     </form>
 
     {% if error %}
@@ -119,11 +161,30 @@
         <button onclick="window.location.href='#'">Configuration</button>
         <button onclick="window.location.href='/albums'">Albums</button>
         <button onclick="window.location.href='/dashboard'">Dashboard</button>
-
     </div>
 
     <footer>
         <p>Powered by CLIP & FAISS | Caymann's Image Search</p>
     </footer>
+
+    <script>
+        const form = document.getElementById('search-form');
+        const imageInput = document.getElementById('image-upload');
+
+        // Automatically submit form when image is selected
+        imageInput.addEventListener('change', () => {
+            if (imageInput.files.length > 0) {
+                form.action = '/search_image';
+                form.submit();
+            }
+        });
+
+        // Submit text search normally
+        form.addEventListener('submit', (e) => {
+            if (imageInput.files.length === 0) {
+                form.action = '/search';
+            }
+        });
+    </script>
 </body>
 </html>

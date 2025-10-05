@@ -286,6 +286,35 @@ def generate_albums(embeddings_dict, num_clusters=6):
     print(f"✅ Created {len(albums)} smarter albums with semantic grouping.")
     return albums
 
+# ------------------- IMAGE-BASED SEARCH -------------------
+def search_images_by_file(image_file, embeddings_dict, top_k=10):
+    """
+    Given a file-like object (from Flask upload), return top_k similar images.
+    """
+    # Load FAISS index
+    index, filenames = load_faiss_index()
+    if index is None:
+        index, filenames = build_and_save_faiss_index(embeddings_dict)
+        if index is None:
+            print("No embeddings found.")
+            return []
+
+    try:
+        # Open and preprocess image
+        img = Image.open(image_file).convert("RGB")
+        image_input = preprocess_clip(img).unsqueeze(0).to(device)
+
+        with torch.no_grad():
+            embedding = model.encode_image(image_input)
+            embedding = embedding / embedding.norm(dim=-1, keepdim=True)
+
+        query_vec = embedding.cpu().numpy().astype("float32")
+        scores, indices = index.search(query_vec, top_k)
+        return [(filenames[i], float(scores[0][j])) for j, i in enumerate(indices[0])]
+    except Exception as e:
+        print(f"Image search failed: {e}")
+        return []
+
 # ------------------- FLASK APP -------------------
 app = Flask(__name__)
 
@@ -306,6 +335,16 @@ def search_route():
     results = search_images(query, embeddings_dict, top_k=30)
     image_paths = [f"/processed/{fname}" for fname, _ in results if os.path.exists(os.path.join(PROCESSED_DIR, fname))]
     return render_template("gallery.html", query=query, image_paths=image_paths)
+
+@app.route("/search_image", methods=["POST"])
+def search_image_route():
+    image_file = request.files.get("image")
+    if not image_file:
+        return render_template("home.html", error="Please upload an image.")
+
+    results = search_images_by_file(image_file, embeddings_dict, top_k=30)
+    image_paths = [f"/processed/{fname}" for fname, _ in results if os.path.exists(os.path.join(PROCESSED_DIR, fname))]
+    return render_template("gallery.html", query="Image Search", image_paths=image_paths)
 
 @app.route("/processed/<path:filename>")
 def serve_processed(filename):
