@@ -275,6 +275,37 @@ def search():
 def serve_processed(filename):
     return send_from_directory(PROCESSED_DIR, filename)
 
+@app.route("/dashboard")
+def dashboard():
+    """Dashboard to display summary statistics."""
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.cursor()
+
+        # Total photos
+        cursor.execute("SELECT COUNT(*) FROM photos_metadata")
+        total_photos = cursor.fetchone()[0]
+
+        # Unique years
+        cursor.execute("SELECT COUNT(DISTINCT year) FROM photos_metadata WHERE year IS NOT NULL")
+        unique_years = cursor.fetchone()[0]
+
+        # Unique geolocations
+        cursor.execute("SELECT COUNT(DISTINCT geolocation) FROM photos_metadata WHERE geolocation NOT IN ('N/A', 'Unknown location')")
+        locations_count = cursor.fetchone()[0]
+
+        # Recent 10 photos
+        cursor.execute("SELECT filename, printf('%04d-%02d-%02d', year, month, day) AS date, geolocation FROM photos_metadata ORDER BY id DESC LIMIT 10")
+        recent_photos = cursor.fetchall()
+
+    return render_template(
+        "dashboard.html",
+        total_photos=total_photos,
+        unique_years=unique_years,
+        locations_count=locations_count,
+        recent_photos=recent_photos
+    )
+
+
 # ------------------- MAIN -------------------
 if __name__ == "__main__":
     init_db()
