@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Photo Search</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', sans-serif;
+            background: #0b0c10;
+            color: #fff;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            height: 100vh;
+            justify-content: center;
+        }
+        form {
+            text-align: center;
+        }
+        input[type="text"] {
+            width: 350px;
+            padding: 10px;
+            border-radius: 8px;
+            border: none;
+            font-size: 16px;
+            outline: none;
+        }
+        button {
+            padding: 10px 20px;
+            margin-left: 10px;
+            border: none;
+            border-radius: 8px;
+            background: #45a29e;
+            color: white;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        button:hover {
+            background: #66fcf1;
+            color: #0b0c10;
+        }
+        .error {
+            margin-top: 10px;
+            color: #ff6961;
+        }
+    </style>
+</head>
+<body>
+    <h1>🔍 Search Your Photos</h1>
+    <form method="POST">
+        <input type="text" name="query" placeholder="Enter a keyword (e.g. shoes, beach, sunset)">
+        <button type="submit">Search</button>
+    </form>
+    {% if error %}
+        <p class="error">{{ error }}</p>
+    {% endif %}
+</body>
+</html>

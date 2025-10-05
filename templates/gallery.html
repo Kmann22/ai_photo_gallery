@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Results for {{ query }}</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', sans-serif;
+            background: #0b0c10;
+            color: #fff;
+            margin: 0;
+            padding: 20px;
+        }
+        h1 {
+            text-align: center;
+        }
+        .gallery {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            gap: 20px;
+            margin-top: 30px;
+        }
+        .image-card {
+            background: #1f2833;
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+            text-align: center;
+        }
+        img {
+            width: 100%;
+            height: 200px;
+            object-fit: cover;
+        }
+        p {
+            padding: 10px;
+        }
+        a {
+            color: #45a29e;
+            text-decoration: none;
+        }
+        a:hover {
+            text-decoration: underline;
+        }
+        .back {
+            display: block;
+            text-align: center;
+            margin-top: 20px;
+            color: #66fcf1;
+        }
+    </style>
+</head>
+<body>
+    <h1>Results for "{{ query }}"</h1>
+    <div class="gallery">
+        {% for img in images %}
+        <div class="image-card">
+            <img src="{{ url_for('static', filename=img.path) }}" alt="{{ img.name }}">
+            <p>{{ img.name }}<br><small>Score: {{ img.score }}</small></p>
+        </div>
+        {% endfor %}
+    </div>
+
+    <a href="/" class="back">⬅ Back to Search</a>
+</body>
+</html>

@@ -23,6 +23,7 @@ RAW_DATA_DIR = os.path.join(BASE_DIR, "data", "raw")
 PROCESSED_DIR = os.path.join(BASE_DIR, "data", "processed")
 EMBEDDINGS_DIR = os.path.join(BASE_DIR, "embeddings")
 EMBEDDINGS_FILE = os.path.join(EMBEDDINGS_DIR, "clip_embeddings.pt")
+FAISS_STORE_FILE = os.path.join(EMBEDDINGS_DIR, "index_store.faiss")
 DB_PATH = os.path.join(BASE_DIR, "metadata.db")
 
 os.makedirs(PROCESSED_DIR, exist_ok=True)
@@ -189,6 +190,7 @@ class NewFileHandler(FileSystemEventHandler):
         if not event.is_directory:
             print(f"New file detected: {event.src_path}")
             process_file(event.src_path, self.embeddings_dict)
+            build_and_save_faiss_index(self.embeddings_dict)
 
 def start_watcher(embeddings_dict):
     event_handler = NewFileHandler(embeddings_dict)
@@ -204,23 +206,41 @@ def start_watcher(embeddings_dict):
         observer.stop()
         observer.join()
 
-# ------------------- FAISS SEARCH -------------------
-def build_faiss_index(embeddings_dict):
+# ------------------- FAISS -------------------
+def save_faiss_index(index, filenames):
+    serialized = faiss.serialize_index(index)
+    torch.save({"index": serialized, "filenames": filenames}, FAISS_STORE_FILE)
+    print(f"✅ Saved FAISS index with {len(filenames)} entries to {FAISS_STORE_FILE}")
+
+def load_faiss_index():
+    if not os.path.exists(FAISS_STORE_FILE):
+        print("No FAISS index found.")
+        return None, []
+    data = torch.load(FAISS_STORE_FILE)
+    index = faiss.deserialize_index(data["index"])
+    filenames = data["filenames"]
+    print(f"✅ Loaded FAISS index with {len(filenames)} entries.")
+    return index, filenames
+
+def build_and_save_faiss_index(embeddings_dict):
     filenames = list(embeddings_dict.keys())
     if not filenames:
+        print("No embeddings to index.")
         return None, []
-
     embeddings = torch.cat([embeddings_dict[f] for f in filenames], dim=0)
     embeddings = embeddings.numpy().astype("float32")
     index = faiss.IndexFlatIP(embeddings.shape[1])
     index.add(embeddings)
+    save_faiss_index(index, filenames)
     return index, filenames
 
 def search_images(prompt, embeddings_dict, top_k=10):
-    index, filenames = build_faiss_index(embeddings_dict)
+    index, filenames = load_faiss_index()
     if index is None:
-        print("No embeddings found. Ingest files first.")
-        return []
+        index, filenames = build_and_save_faiss_index(embeddings_dict)
+        if index is None:
+            print("No embeddings found.")
+            return []
 
     text_tokens = clip.tokenize([prompt]).to(device)
     with torch.no_grad():
@@ -236,8 +256,8 @@ if __name__ == "__main__":
     init_db()
     embeddings_dict = load_embeddings()
     ingest_existing_files(embeddings_dict)
+    build_and_save_faiss_index(embeddings_dict)
 
-    # Example search
     query = "shoes"
     results = search_images(query, embeddings_dict, top_k=10)
     print("\nTop 10 results for:", query)
