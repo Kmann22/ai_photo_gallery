@@ -6,10 +6,10 @@
     <style>
         body {
             font-family: "Poppins", "Segoe UI", Arial, sans-serif;
-            background-color: #0d0d0d;
+            background-color: #121212;
             color: #e0e0e0;
             margin: 0;
-            padding: 40px;
+            padding: 40px 20px;
         }
 
         h1 {
@@ -23,11 +23,11 @@
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
             gap: 25px;
-            margin-bottom: 50px;
+            margin-bottom: 40px;
         }
 
         .card {
-            background-color: #1a1a1a;
+            background-color: #1e1e1e;
             padding: 25px;
             border-radius: 15px;
             text-align: center;
@@ -52,10 +52,23 @@
         }
 
         .table-container {
-            background-color: #121212;
+            background-color: #1e1e1e;
             border-radius: 15px;
             padding: 20px;
             overflow-x: auto;
+            max-width: 1000px;
+            margin: 0 auto 40px auto;
+        }
+
+        #searchInput {
+            width: 100%;
+            padding: 10px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            background:#1a1a1a;
+            color:#e0e0e0;
+            border:1px solid #333;
+            font-size: 14px;
         }
 
         table {
@@ -82,7 +95,7 @@
         .back-btn {
             display: block;
             width: fit-content;
-            margin: 40px auto 0;
+            margin: 0 auto;
             padding: 12px 25px;
             background: linear-gradient(90deg, #007bff, #0056b3);
             color: white;
@@ -99,7 +112,6 @@
 
         footer {
             text-align: center;
-            margin-top: 50px;
             color: #777;
             font-size: 14px;
         }
@@ -108,6 +120,7 @@
 <body>
     <h1>📊 Photo Insights Dashboard</h1>
 
+    <!-- Cards -->
     <div class="stats-grid">
         <div class="card">
             <h2>{{ total_photos }}</h2>
@@ -123,8 +136,9 @@
         </div>
     </div>
 
+    <!-- Table -->
     <div class="table-container">
-        <h3 style="color:#007bff; margin-bottom:15px;">Recent Photos</h3>
+        <input type="text" id="searchInput" placeholder="Search photos...">
         <table>
             <tr>
                 <th>Filename</th>
@@ -146,5 +160,15 @@
     <footer>
         <p>Powered by CLIP × FAISS | Caymann’s Intelligent Image Dashboard</p>
     </footer>
+
+    <script>
+        // Table search filter
+        document.getElementById('searchInput').addEventListener('keyup', function() {
+            let filter = this.value.toLowerCase();
+            document.querySelectorAll("table tr:not(:first-child)").forEach(row => {
+                row.style.display = row.textContent.toLowerCase().includes(filter) ? '' : 'none';
+            });
+        });
+    </script>
 </body>
 </html>

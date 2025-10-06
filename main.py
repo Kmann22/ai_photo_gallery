@@ -315,6 +315,8 @@ def search_images_by_file(image_file, embeddings_dict, top_k=10):
         print(f"Image search failed: {e}")
         return []
 
+
+
 def get_filter_options():
     with sqlite3.connect(DB_PATH) as conn:
         cursor = conn.cursor()
@@ -356,6 +358,7 @@ def search_image_route():
     results = search_images_by_file(image_file, embeddings_dict, top_k=30)
     image_paths = [f"/processed/{fname}" for fname, _ in results if os.path.exists(os.path.join(PROCESSED_DIR, fname))]
     return render_template("gallery.html", query="Image Search", image_paths=image_paths)
+
 
 @app.route("/processed/<path:filename>")
 def serve_processed(filename):
@@ -412,16 +415,30 @@ def filter_photos():
 def dashboard():
     with sqlite3.connect(DB_PATH) as conn:
         cursor = conn.cursor()
+
+        # Total photos
         cursor.execute("SELECT COUNT(*) FROM photos_metadata")
         total_photos = cursor.fetchone()[0]
 
+        # Unique years
         cursor.execute("SELECT COUNT(DISTINCT year) FROM photos_metadata WHERE year IS NOT NULL")
         unique_years = cursor.fetchone()[0]
 
-        cursor.execute("SELECT COUNT(DISTINCT geolocation) FROM photos_metadata WHERE geolocation NOT IN ('N/A','Unknown location')")
+        # Distinct locations (contains filter)
+        cursor.execute("""
+            SELECT COUNT(DISTINCT geolocation)
+            FROM photos_metadata
+            WHERE geolocation NOT LIKE 'N/A%' AND geolocation NOT LIKE 'Unknown%'
+        """)
         locations_count = cursor.fetchone()[0]
 
-        cursor.execute("SELECT filename, printf('%04d-%02d-%02d', year, month, day) AS date, geolocation FROM photos_metadata ORDER BY id DESC LIMIT 10")
+        # Recent photos
+        cursor.execute("""
+            SELECT filename, printf('%04d-%02d-%02d', year, month, day) AS date, geolocation
+            FROM photos_metadata
+            ORDER BY id DESC
+            LIMIT 10
+        """)
         recent_photos = cursor.fetchall()
 
     return render_template(
