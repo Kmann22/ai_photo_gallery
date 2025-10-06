@@ -315,6 +315,17 @@ def search_images_by_file(image_file, embeddings_dict, top_k=10):
         print(f"Image search failed: {e}")
         return []
 
+def get_filter_options():
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT DISTINCT year FROM photos_metadata WHERE year IS NOT NULL ORDER BY year DESC")
+        years = [row[0] for row in cursor.fetchall()]
+
+        cursor.execute("SELECT DISTINCT geolocation FROM photos_metadata WHERE geolocation NOT IN ('N/A','Unknown location') ORDER BY geolocation")
+        locations = [row[0] for row in cursor.fetchall()]
+
+    return years, locations
+
 # ------------------- FLASK APP -------------------
 app = Flask(__name__)
 
@@ -361,6 +372,41 @@ def view_single_album(album_name):
         return f"Album '{album_name}' not found.", 404
     image_paths = [f"/processed/{fname}" for fname in albums_cache[album_name]]
     return render_template("gallery.html", query=album_name, image_paths=image_paths)
+
+@app.route("/filter", methods=["GET", "POST"])
+def filter_photos():
+    years, locations = get_filter_options()
+
+    if request.method == "POST":
+        selected_year = request.form.get("year")
+        selected_location = request.form.get("location")
+
+        query = "SELECT filename FROM photos_metadata WHERE 1=1"
+        params = []
+
+        if selected_year:
+            query += " AND year=?"
+            params.append(selected_year)
+
+        if selected_location:
+            query += " AND geolocation LIKE ?"
+            params.append(f"%{selected_location}%")
+
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+            cursor.execute(query, params)
+            rows = cursor.fetchall()
+
+        image_paths = [f"/processed/{row[0]}" for row in rows if os.path.exists(os.path.join(PROCESSED_DIR, row[0]))]
+
+        if not image_paths:
+            return render_template("filtered_gallery.html", error="No photos found.", image_paths=[])
+
+        return render_template("filtered_gallery.html", image_paths=image_paths)
+
+    # GET request: show filter form
+    return render_template("filter.html", years=years, locations=locations)
+
 
 @app.route("/dashboard")
 def dashboard():

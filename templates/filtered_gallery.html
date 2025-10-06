@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Filtered Results</title>
+    <style>
+        body {
+            margin: 0;
+            font-family: "Poppins", "Segoe UI", sans-serif;
+            background: linear-gradient(135deg, #0b0b0d 0%, #121418 100%);
+            color: #e0e0e0;
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh;
+        }
+
+        header {
+            background: rgba(20, 20, 25, 0.9);
+            backdrop-filter: blur(8px);
+            padding: 15px 30px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #2e2e2e;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+
+        header h2 {
+            font-size: 22px;
+            color: #ffffff;
+        }
+
+        .back-btn {
+            background-color: #1e1e1e;
+            color: #bbb;
+            border: 1px solid #2e2e2e;
+            border-radius: 25px;
+            padding: 8px 16px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: 0.3s;
+        }
+
+        .back-btn:hover {
+            background-color: #007bff;
+            color: white;
+        }
+
+        .gallery {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+            gap: 20px;
+            padding: 30px;
+            flex-grow: 1;
+        }
+
+        .gallery img {
+            width: 100%;
+            border-radius: 12px;
+            border: 1px solid #2e2e2e;
+            transition: transform 0.3s ease;
+        }
+
+        .gallery img:hover {
+            transform: scale(1.05);
+        }
+
+        .error {
+            text-align: center;
+            color: #ff6b6b;
+            font-size: 16px;
+            margin-top: 50px;
+        }
+
+        footer {
+            text-align: center;
+            padding: 15px;
+            font-size: 13px;
+            color: #777;
+            border-top: 1px solid #2e2e2e;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h2>📸 Filtered Gallery</h2>
+        <button class="back-btn" onclick="window.location.href='/filter'">← Filters</button>
+    </header>
+
+    {% if image_paths %}
+    <div class="gallery">
+        {% for img in image_paths %}
+        <img src="{{ img }}" alt="Photo">
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="error">{{ error or "No photos found for this filter." }}</div>
+    {% endif %}
+
+    <footer>
+        Powered by CLIP & FAISS | Caymann’s Image Search
+    </footer>
+</body>
+</html>
